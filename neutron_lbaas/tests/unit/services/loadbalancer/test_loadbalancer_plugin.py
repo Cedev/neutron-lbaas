@@ -66,7 +66,39 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
                             content_type='application/{0}'.format(self.fmt))
         data['loadbalancer'].update({
             'provider': n_constants.ATTR_NOT_SPECIFIED,
-            'flavor_id': n_constants.ATTR_NOT_SPECIFIED})
+            'flavor_id': n_constants.ATTR_NOT_SPECIFIED,
+            'vip_network_id': n_constants.ATTR_NOT_SPECIFIED})
+        instance.create_loadbalancer.assert_called_with(mock.ANY,
+                                                        loadbalancer=data)
+
+        self.assertEqual(exc.HTTPCreated.code, res.status_int)
+        res = self.deserialize(res)
+        self.assertIn('loadbalancer', res)
+        self.assertEqual(return_value, res['loadbalancer'])
+
+    def test_loadbalancer_create_with_vip_network_id(self):
+        lb_id = _uuid()
+        vip_subnet_id = _uuid()
+        data = {'loadbalancer': {'name': 'lb1',
+                                 'description': 'descr_lb1',
+                                 'tenant_id': _uuid(),
+                                 'vip_network_id': _uuid(),
+                                 'admin_state_up': True,
+                                 'vip_address': '127.0.0.1'}}
+        return_value = copy.copy(data['loadbalancer'])
+        return_value.update({'id': lb_id, 'vip_subnet_id': vip_subnet_id})
+        del return_value['vip_network_id']
+
+        instance = self.plugin.return_value
+        instance.create_loadbalancer.return_value = return_value
+
+        res = self.api.post(_get_path('lbaas/loadbalancers', fmt=self.fmt),
+                            self.serialize(data),
+                            content_type='application/{0}'.format(self.fmt))
+        data['loadbalancer'].update({
+            'provider': n_constants.ATTR_NOT_SPECIFIED,
+            'flavor_id': n_constants.ATTR_NOT_SPECIFIED,
+            'vip_subnet_id': n_constants.ATTR_NOT_SPECIFIED})
         instance.create_loadbalancer.assert_called_with(mock.ANY,
                                                         loadbalancer=data)
 

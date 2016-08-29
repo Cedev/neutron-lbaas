@@ -74,12 +74,13 @@ class LbaasTestMixin(object):
 
     def _get_loadbalancer_optional_args(self):
         return ('description', 'vip_address', 'admin_state_up', 'name',
-                'listeners')
+                'listeners', 'vip_network_id')
 
     def _create_loadbalancer(self, fmt, subnet_id,
                              expected_res_status=None, **kwargs):
-        data = {'loadbalancer': {'vip_subnet_id': subnet_id,
-                                 'tenant_id': self._tenant_id}}
+        data = {'loadbalancer': {'tenant_id': self._tenant_id}}
+        if 'vip_network_id' not in kwargs:
+            data['loadbalancer']['vip_subnet_id'] = subnet_id
         args = self._get_loadbalancer_optional_args()
         for arg in args:
             if arg in kwargs and kwargs[arg] is not None:
@@ -771,6 +772,39 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
     def test_create_loadbalancer_with_vip_address_outside_subnet(self):
         with testtools.ExpectedException(webob.exc.HTTPClientError):
             self.test_create_loadbalancer(vip_address='9.9.9.9')
+
+    def test_create_loadbalancer_with_vip_network_id(self):
+        expected = {
+            'name': 'vip1',
+            'description': '',
+            'admin_state_up': True,
+            'provisioning_status': constants.ACTIVE,
+            'operating_status': lb_const.ONLINE,
+            'tenant_id': self._tenant_id,
+            'listeners': [],
+            'pools': [],
+            'provider': 'lbaas'
+        }
+
+        with self.subnet() as subnet:
+            expected['vip_subnet_id'] = subnet['subnet']['id']
+            name = expected['name']
+            extras = {
+                'vip_network_id': subnet['subnet']['network_id']
+            }
+
+            with self.loadbalancer(name=name, subnet=subnet, **extras) as lb:
+                lb_id = lb['loadbalancer']['id']
+                for k in ('id', 'vip_address', 'vip_subnet_id'):
+                    self.assertTrue(lb['loadbalancer'].get(k, None))
+
+                expected['vip_port_id'] = lb['loadbalancer']['vip_port_id']
+                actual = dict((k, v)
+                              for k, v in lb['loadbalancer'].items()
+                              if k in expected)
+                self.assertEqual(expected, actual)
+                self._validate_statuses(lb_id)
+            return lb
 
     def test_update_loadbalancer(self):
         name = 'new_loadbalancer'
