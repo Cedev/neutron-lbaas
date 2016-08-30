@@ -15,9 +15,11 @@
 
 import re
 
+import netaddr
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
+from neutron.common import ipv6_utils
 from neutron.db import api as db_api
 from neutron.db import common_db_mixin as base_db
 from neutron import manager
@@ -95,9 +97,22 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                                            filters=filters)
         return [model_instance for model_instance in query]
 
+    def _create_port_fixed_ip_order(self, fixed_ip):
+        # We're most interesting in IPv4 subnets
+        # IPv6 has enough addresses that a single subnet can always
+        # be created that's big enough to allocate all vips
+        ip_address = fixed_ip['ip_address']
+        ip = netaddr.IPAddress(ip_address)
+        if ip.version == 4:
+            return 1
+        if ip.version == 6:
+            if not ipv6_utils.is_eui64_address(ip_address):
+                return 2
+            return 3
+        return 4
+
     def _create_port_for_load_balancer(self, context, lb_db, ip_address,
                                        network_id=None):
-        import pdb; pdb.set_trace()
         if lb_db.vip_subnet_id:
             assign_subnet = False
             # resolve subnet and create port
@@ -107,9 +122,12 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             if ip_address and ip_address != n_const.ATTR_NOT_SPECIFIED:
                 fixed_ip['ip_address'] = ip_address
             fixed_ips = [fixed_ip]
-        else:
+        elif network_id and network_id != n_const.ATTR_NOT_SPECIFIED:
             assign_subnet = True
             fixed_ips = n_const.ATTR_NOT_SPECIFIED
+        else:
+            attrs = _("vip_subnet_id or vip_network_id")
+            raise loadbalancerv2.RequiredAttributeNotSpecified(attr_name=attrs)
 
         port_data = {
             'tenant_id': lb_db.tenant_id,
@@ -126,11 +144,8 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
         lb_db.vip_port_id = port['id']
 
         if assign_subnet:
-            # We're most interesting in IPv4 subnets
-            # IPv6 has enough addresses that a single subnet can always
-            # be created that's big enough to allocate all vips
             by_ip_version = sorted(port['fixed_ips'],
-                                   key=lambda f: ':' in f['ip_address'])
+                                   key=self._create_port_fixed_ip_order)
             for fixed_ip in by_ip_version:
                 lb_db.vip_address = fixed_ip['ip_address']
                 lb_db.vip_subnet_id = fixed_ip['subnet_id']

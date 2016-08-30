@@ -74,17 +74,19 @@ class LbaasTestMixin(object):
 
     def _get_loadbalancer_optional_args(self):
         return ('description', 'vip_address', 'admin_state_up', 'name',
-                'listeners', 'vip_network_id')
+                'listeners', 'vip_network_id', 'vip_subnet_id')
 
     def _create_loadbalancer(self, fmt, subnet_id,
                              expected_res_status=None, **kwargs):
-        data = {'loadbalancer': {'tenant_id': self._tenant_id}}
-        if 'vip_network_id' not in kwargs:
-            data['loadbalancer']['vip_subnet_id'] = subnet_id
+        data = {'loadbalancer': {'vip_subnet_id': subnet_id,
+                                 'tenant_id': self._tenant_id}}
         args = self._get_loadbalancer_optional_args()
         for arg in args:
-            if arg in kwargs and kwargs[arg] is not None:
-                data['loadbalancer'][arg] = kwargs[arg]
+            if arg in kwargs:
+                if kwargs[arg] is not None:
+                    data['loadbalancer'][arg] = kwargs[arg]
+                else:
+                    data['loadbalancer'].pop(arg, None)
 
         lb_req = self.new_create_request('loadbalancers', data, fmt)
         lb_res = lb_req.get_response(self.ext_api)
@@ -773,6 +775,13 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
         with testtools.ExpectedException(webob.exc.HTTPClientError):
             self.test_create_loadbalancer(vip_address='9.9.9.9')
 
+    def test_create_loadbalancer_with_no_vip_network_or_subnet(self):
+        with testtools.ExpectedException(webob.exc.HTTPClientError):
+            self.test_create_loadbalancer(
+                vip_network_id=None,
+                vip_subnet_id=None,
+                expected_res_status=400)
+
     def test_create_loadbalancer_with_vip_network_id(self):
         expected = {
             'name': 'vip1',
@@ -790,7 +799,8 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
             expected['vip_subnet_id'] = subnet['subnet']['id']
             name = expected['name']
             extras = {
-                'vip_network_id': subnet['subnet']['network_id']
+                'vip_network_id': subnet['subnet']['network_id'],
+                'vip_subnet_id': None
             }
 
             with self.loadbalancer(name=name, subnet=subnet, **extras) as lb:
